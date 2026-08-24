@@ -1,0 +1,15 @@
+{
+  "name": "clob-codama",
+  "description": "Codama generators for the clob Solana clients",
+  "license": "MIT OR Apache-2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "node generate.mjs"
+  },
+  "dependencies": {
+    "codama": "^1.3.0",
+    "@codama/renderers-rust": "^1.1.0",
+    "@codama/renderers-js": "^1.3.0"
+  }
+}

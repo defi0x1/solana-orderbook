@@ -1,0 +1,32 @@
+[package]
+name = "clob-program"
+version = "0.0.1"
+edition = "2021"
+description = "A compute-efficient central limit order book program for Solana"
+license = "MIT OR Apache-2.0"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
+
+[features]
+default = []
+ix-logs = []
+test-utils = []
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+# Pinned exactly because entrypoint.rs mirrors the account header layout by
+# hand; the type it mirrors is private, so a version bump has to be paired with
+# re-checking those offsets.
+pinocchio = "=0.8.4"
+pinocchio-associated-token-account = "0.2.0"
+pinocchio-system = "0.2.3"
+pinocchio-token = "0.3.0"
+# Pinned to the exact version already resolved transitively via pinocchio-token
+# 0.3.0, so this doesn't pull a second copy of the crate into the dependency
+# graph. Used only to declare the Token-2022 program id via its `pubkey!`
+# macro (a compile-time base58 decode), the same trusted mechanism
+# pinocchio-token uses for its own `ID` constant.
+pinocchio-pubkey = "=0.2.4"

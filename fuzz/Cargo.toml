@@ -1,0 +1,47 @@
+[package]
+name = "clob-program-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Deliberately outside the main [workspace] (program/sdk/tests): the program
+# crate pins pinocchio to an exact version for its hand-rolled entrypoint, and
+# this crate's host-target build (libFuzzer, not `build-sbf`) has no reason to
+# share that resolution.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+
+[dependencies.clob-program]
+path = "../program"
+features = ["test-utils"]
+
+# Debug assertions and overflow checks ON for fuzzing — this logic ships with
+# overflow checks disabled on-chain (program/Cargo.toml -> [profile.release]),
+# on the strength of the tick_limit/max_lots_per_order invariants proven at
+# CreateMarket. Fuzzing exists specifically to stress those invariants
+# off-chain with the guardrails on, so a violation aborts loudly here instead
+# of wrapping silently the way it would in the on-chain release profile.
+[profile.release]
+debug = 1
+debug-assertions = true
+overflow-checks = true
+
+[[bin]]
+name = "bitmap"
+path = "fuzz_targets/bitmap.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "book_ops"
+path = "fuzz_targets/book_ops.rs"
+test = false
+doc = false
+bench = false

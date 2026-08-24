@@ -1,0 +1,12 @@
+{
+  "name": "@clob/client",
+  "version": "0.0.1",
+  "description": "JavaScript client for the clob Solana program",
+  "license": "MIT OR Apache-2.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/generated/index.ts",
+  "peerDependencies": {
+    "@solana/kit": "^2.1.0"
+  }
+}

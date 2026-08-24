@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = ["program", "sdk/rust", "tests"]
+
+[workspace.dependencies]
+clob-program = { path = "program" }
+clob-client = { path = "sdk/rust" }
+
+# Hot-path arithmetic relies on invariants established at market creation;
+# operations that can exceed those invariants use checked arithmetic directly.
+# Release builds disable implicit overflow checks to avoid charging every
+# arithmetic operation on the CU-sensitive path.
+[profile.release]
+overflow-checks = false
+
+[profile.dev]
+overflow-checks = true

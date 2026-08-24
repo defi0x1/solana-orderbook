@@ -1,0 +1,32 @@
+[package]
+name = "clob-tests"
+version = "0.0.1"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+clob-program = { workspace = true, features = ["test-utils"] }
+clob-client = { workspace = true }
+mollusk-svm = "0.5.0"
+mollusk-svm-programs-token = "0.5.0"
+spl-token = "8.0.0"
+# Test-fixture construction only (never a program dependency): builds real
+# TLV extension bytes via the crate's own Pod-packing APIs instead of
+# hand-derived byte offsets, since the extension struct layouts aren't worth
+# re-deriving by hand for a test fixture.
+spl-token-2022 = "8"
+spl-associated-token-account = "7.0.0"
+solana-instruction = "2.2.1"
+solana-account = "2.2.1"
+solana-pubkey = "2.2.1"
+
+[dev-dependencies]
+mollusk-svm-bencher = "0.5.0"
+
+[[bench]]
+name = "compute_units"
+harness = false
