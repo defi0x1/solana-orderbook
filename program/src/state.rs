@@ -2181,8 +2181,10 @@ impl<'a> BookRefMut<'a> {
         let mut evicted = 0u32;
         let mut cur = anchor;
         if ideal > cur {
-            // Window slides up: vacate words at the bottom.
-            while cur < ideal {
+            // Window slides up: vacate words at the bottom. Budget checked
+            // once per word, before entering it, so a word is always fully
+            // vacated or not touched at all — never left half-evicted.
+            while cur < ideal && evicted < max_levels {
                 // Empty word on both sides: one load each, skip 64 probes.
                 if !self.bid_bitmap.word_empty(cur) || !self.ask_bitmap.word_empty(cur) {
                     let word_end = cur + 64;
@@ -2190,10 +2192,6 @@ impl<'a> BookRefMut<'a> {
                     while t < word_end {
                         for side in [Side::Bid, Side::Ask] {
                             if self.bitmap(side).get(t) {
-                                if evicted >= max_levels {
-                                    self.header.set_anchor_tick(cur);
-                                    return Ok((evicted, cur));
-                                }
                                 evicted += self.evict_level(side, t)?;
                             }
                         }
@@ -2203,8 +2201,9 @@ impl<'a> BookRefMut<'a> {
                 cur += 64;
             }
         } else if ideal < cur {
-            // Window slides down: vacate words at the top.
-            while cur > ideal {
+            // Window slides down: vacate words at the top. Same word-atomic
+            // budgeting as the slide-up arm above.
+            while cur > ideal && evicted < max_levels {
                 let top_start = cur + WINDOW_MASK - 63; // last word of current window
                 if !self.bid_bitmap.word_empty(top_start) || !self.ask_bitmap.word_empty(top_start)
                 {
@@ -2212,10 +2211,6 @@ impl<'a> BookRefMut<'a> {
                     while t <= cur + WINDOW_MASK {
                         for side in [Side::Bid, Side::Ask] {
                             if self.bitmap(side).get(t) {
-                                if evicted >= max_levels {
-                                    self.header.set_anchor_tick(cur);
-                                    return Ok((evicted, cur));
-                                }
                                 evicted += self.evict_level(side, t)?;
                             }
                         }
@@ -2398,5 +2393,91 @@ mod upsert_order_lots_bound_tests {
 
         assert_eq!(result, Err(ClobError::InvalidLots.into()));
         assert_eq!(book.seats[seat as usize].quote_locked(), 0);
+    }
+}
+
+#[cfg(test)]
+mod reanchor_step_atomic_eviction_tests {
+    use super::*;
+
+    fn setup(anchor: u32) -> (Vec<u8>, u16) {
+        const CAPACITY: u32 = 64;
+        let mut data = vec![0u8; POOL_OFFSET + CAPACITY as usize * NODE_LEN];
+        {
+            let header = unsafe { Market::from_bytes_unchecked_mut(&mut data) };
+            header.set_order_pool_capacity(CAPACITY);
+            header.set_anchor_tick(anchor);
+            header.set_tick_size(100);
+            header.set_base_lot_size(1_000);
+            header.set_max_lots_per_order(1_000_000);
+            header.set_tick_limit(u32::MAX - 2 * WINDOW_TICKS as u32);
+            header.set_free_head(NIL);
+        }
+        let mut book = unsafe { BookRefMut::from_bytes_unchecked_mut(&mut data) };
+        book.thread_free_list(1, CAPACITY);
+        let seat = book.claim_seat(&[1u8; 32]).expect("seat claim");
+        book.seats[seat as usize].set_quote_free(1_000_000_000);
+        (data, seat)
+    }
+
+    /// Budget of 1 with 2 occupied levels in the first word: the whole word
+    /// is still vacated, and the anchor advances past it.
+    #[test]
+    fn word_is_fully_vacated_or_not_touched_at_all() {
+        const ANCHOR: u32 = 64;
+        let (mut data, seat) = setup(ANCHOR);
+        let mut book = unsafe { BookRefMut::from_bytes_unchecked_mut(&mut data) };
+
+        book.upsert_order(Side::Bid, ANCHOR, 10, seat, 0, false)
+            .expect("insert tick=ANCHOR");
+        book.upsert_order(Side::Bid, ANCHOR + 1, 10, seat, 0, false)
+            .expect("insert tick=ANCHOR+1");
+
+        let (evicted, new_anchor) = book.reanchor_step(128, 1).expect("reanchor_step");
+
+        assert_eq!(evicted, 2, "the whole first word is vacated, not just 1");
+        assert_eq!(new_anchor, ANCHOR + 64, "anchor advances past the vacated word");
+        assert!(!book.bid_bitmap.get(ANCHOR));
+        assert!(!book.bid_bitmap.get(ANCHOR + 1));
+    }
+
+    /// Budget of 0 touches nothing; anchor and order stay put.
+    #[test]
+    fn zero_budget_touches_nothing() {
+        const ANCHOR: u32 = 64;
+        let (mut data, seat) = setup(ANCHOR);
+        let mut book = unsafe { BookRefMut::from_bytes_unchecked_mut(&mut data) };
+
+        book.upsert_order(Side::Bid, ANCHOR, 10, seat, 0, false)
+            .expect("insert tick=ANCHOR");
+
+        let (evicted, new_anchor) = book.reanchor_step(128, 0).expect("reanchor_step");
+
+        assert_eq!(evicted, 0);
+        assert_eq!(new_anchor, ANCHOR);
+        assert!(book.bid_bitmap.get(ANCHOR));
+    }
+
+    /// No surviving order ends up behind the committed anchor.
+    #[test]
+    fn no_surviving_order_ends_up_behind_the_committed_anchor() {
+        const ANCHOR: u32 = 64;
+        let (mut data, seat) = setup(ANCHOR);
+        let mut book = unsafe { BookRefMut::from_bytes_unchecked_mut(&mut data) };
+
+        book.upsert_order(Side::Bid, ANCHOR, 10, seat, 0, false)
+            .expect("insert tick=ANCHOR");
+        book.upsert_order(Side::Bid, ANCHOR + 64, 10, seat, 0, false)
+            .expect("insert tick=ANCHOR+64");
+
+        let (evicted, new_anchor) = book.reanchor_step(256, 1).expect("reanchor_step");
+
+        assert_eq!(evicted, 1);
+        assert_eq!(new_anchor, ANCHOR + 64);
+        assert!(!book.bid_bitmap.get(ANCHOR), "first word fully vacated");
+        assert!(
+            book.bid_bitmap.get(ANCHOR + 64),
+            "second word untouched -- its order is exactly at the new anchor, not behind it"
+        );
     }
 }
