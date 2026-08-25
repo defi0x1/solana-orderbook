@@ -29,7 +29,8 @@ use pinocchio::{account_info::AccountInfo, program_error::ProgramError, ProgramR
 /// Account Checks:
 /// - Seat authority: must sign and match the config's seat_authority
 /// - Owner: never read, only recorded. That key is then the authorization for
-///   every later maker instruction on this seat
+///   every later maker instruction on this seat. Rejected if it's the zero
+///   address, which `Seat::is_free()` reserves to mean "slot unclaimed"
 /// - Config: owner, length and version via Config::check, and must be the
 ///   config this market named at creation
 /// - Market: owner, length and version via Market::check; must be writable
@@ -68,6 +69,10 @@ impl<'a> TryFrom<&'a [AccountInfo]> for ClaimSeatAccounts<'a> {
         let cfg = unsafe { Config::from_bytes_unchecked(config.borrow_data_unchecked()) };
         if cfg.seat_authority().ne(seat_authority.key()) {
             return Err(ClobError::InvalidProgramAuthority.into());
+        }
+        // Seat::is_free() treats owner == [0u8; 32] as "slot unclaimed".
+        if owner.key().eq(&[0u8; 32]) {
+            return Err(ClobError::ZeroAuthority.into());
         }
 
         Ok(Self { owner, market })

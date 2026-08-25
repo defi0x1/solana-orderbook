@@ -301,3 +301,17 @@ fn attack_double_reap_of_expired_order() {
     );
     assert_eq!(book.seats[0].base_locked(), 0);
 }
+
+// Zero owner collides with Seat::is_free()'s sentinel; must be rejected.
+#[test]
+fn attack_claim_seat_rejects_zero_owner() {
+    let mut fx = Fixture::new();
+
+    let zero_owner = solana_pubkey::Pubkey::new_from_array([0u8; 32]);
+    fx.run_expect_failure(claim_seat_ix(zero_owner));
+
+    fx.run(claim_seat_ix(ALICE));
+    let mut data = fx.market_data();
+    let book = unsafe { BookRefMut::from_bytes_unchecked_mut(&mut data) };
+    assert_eq!(book.seats[0].owner(), ALICE.as_ref());
+}
