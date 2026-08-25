@@ -4,35 +4,7 @@
 > modified for personal use. All credit for the original design and
 > implementation goes to the upstream author(s); this fork is not affiliated
 > with or endorsed by them. See the upstream repository for the canonical
-> version. Changes made here:
->
-> - **Token-2022 support.** `CreateMarket` now detects whether each mint
->   belongs to the legacy SPL Token program or Token-2022, records that plus
->   the mint's decimals on the market header, and routes every vault transfer
->   through a hand-built `TransferChecked` CPI dispatched to the correct
->   program (the upstream `pinocchio-token` wrapper only ever targets the
->   legacy program).
-> - **Delta-based crediting.** `Deposit` credits a seat by the *observed*
->   change in the vault's token balance around each transfer, not the
->   instruction-stated amount — correct under a Token-2022 transfer-fee mint,
->   where those two numbers differ.
-> - **Fee-aware `Swap`.** The seatless swap path pulls its input leg first,
->   matches against the observed post-fee delta instead of the nominal input
->   amount, and refunds any unmatched remainder — a fee-bearing input mint no
->   longer makes every swap revert.
-> - **`PermanentDelegate` rejection.** `CreateMarket` rejects a Token-2022
->   mint carrying the `PermanentDelegate` extension, since that extension lets
->   the mint's delegate move funds out of a vault with no involvement from
->   this program at all.
-> - **Zero-authority guard.** `CreateConfig`/`UpdateConfig` reject an
->   all-zero `seat_authority`/`market_authority`, which no signer could ever
->   produce and would otherwise permanently strand those roles.
-> - **Fuzz test harness.** Added `fuzz/` (cargo-fuzz) covering the `Bitmap`
->   occupancy index (differential-tested against a `BTreeSet` oracle) and a
->   stateful `BookRefMut` operation sequence checking structural invariants
->   and money conservation after every step.
-> - Market account version bumped accordingly (no migration path — this fork
->   has no live markets).
+> version.
 
 A fast, compute-efficient central limit order book implementation for Solana.
 
