@@ -91,3 +91,4 @@ pub mod types {
 }
 
 pub mod snapshot;
+pub mod scale;
