@@ -1549,6 +1549,10 @@ impl<'a> BookRefMut<'a> {
             self.kill_order(cur)?;
             return Ok(cur);
         }
+        // Bound lots before locked_atoms's multiply, not after it.
+        if unlikely(lots > self.header.max_lots_per_order()) {
+            return Err(ClobError::InvalidLots.into());
+        }
         let tick = self.check_or_slide(side, tick, slide)?;
 
         if let Some(cur) = self.find_quote(maker, side, tick) {
@@ -2359,5 +2363,40 @@ mod token_program_tests {
         assert_eq!(m.quote_token_program(), TOKEN_PROGRAM_2022);
         assert_eq!(m.base_decimals(), 18);
         assert_eq!(m.quote_decimals(), 0);
+    }
+}
+
+#[cfg(test)]
+mod upsert_order_lots_bound_tests {
+    use super::*;
+
+    /// `PlaceLimit` forwards `lots: u32` unchecked, trusting `upsert_order`
+    /// to reject an oversized value before any locking or multiply.
+    #[test]
+    fn oversized_lots_rejected_before_locking_anything() {
+        const CAPACITY: u32 = 64;
+        const ANCHOR: u32 = 64_000;
+        const TICK_SIZE: u64 = 1_000_000_000;
+        const MAX_LOTS_PER_ORDER: u32 = 1_000;
+
+        let mut data = vec![0u8; POOL_OFFSET + CAPACITY as usize * NODE_LEN];
+        {
+            let header = unsafe { Market::from_bytes_unchecked_mut(&mut data) };
+            header.set_order_pool_capacity(CAPACITY);
+            header.set_anchor_tick(ANCHOR);
+            header.set_tick_size(TICK_SIZE);
+            header.set_base_lot_size(1_000);
+            header.set_max_lots_per_order(MAX_LOTS_PER_ORDER);
+            header.set_tick_limit(u32::MAX - 2 * WINDOW_TICKS as u32);
+            header.set_free_head(NIL);
+        }
+        let mut book = unsafe { BookRefMut::from_bytes_unchecked_mut(&mut data) };
+        book.thread_free_list(1, CAPACITY);
+        let seat = book.claim_seat(&[1u8; 32]).expect("seat claim");
+
+        let result = book.upsert_order(Side::Bid, ANCHOR, u32::MAX, seat, 0, false);
+
+        assert_eq!(result, Err(ClobError::InvalidLots.into()));
+        assert_eq!(book.seats[seat as usize].quote_locked(), 0);
     }
 }
